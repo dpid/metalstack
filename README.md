@@ -4,12 +4,12 @@ A CLI app for tracking your precious metals portfolio with real-time spot prices
 
 ## Features
 
-- **Interactive TUI** - Live dashboard that stays open with keyboard controls
+- **Interactive TUI** - Live dashboard with keyboard controls and auto-refresh
 - Real-time spot prices for gold, silver, platinum, and palladium
 - Track your bullion collection (coins and bars)
-- View portfolio value and changes over time
-- ASCII price charts in terminal
-- Time period toggles: 24h, 3d, 1w, 1m, YTD, 1y, 5y, all
+- Portfolio value with 24h change tracking
+- ASCII price charts with multiple time periods (1w, 1m, ytd, 1y, 5y)
+- Persistent settings (remembers last selected metal and chart period)
 
 ## Installation
 
@@ -71,8 +71,13 @@ By default, `metalstack` launches an interactive dashboard that stays open until
 | `2` or `s` | Select Silver |
 | `3` or `p` | Select Platinum |
 | `4` or `d` | Select Palladium |
+| `c` | Toggle price chart |
+| `<` or `,` | Previous chart period |
+| `>` or `.` | Next chart period |
 | `r` | Refresh prices |
 | `q` | Quit |
+
+Prices auto-refresh based on the cache TTL setting.
 
 ## Commands
 
@@ -87,14 +92,13 @@ By default, `metalstack` launches an interactive dashboard that stays open until
 
 ## Data Storage
 
-Your portfolio data is stored locally and never uploaded:
+Your data is stored locally and never uploaded:
 
 | Data | Location |
 |------|----------|
 | Portfolio | `~/.local/share/metalstack/collection.json` |
+| Settings | `~/.local/share/metalstack/settings.json` |
 | API Cache | `~/.cache/metalstack/` |
-
-This keeps your personal data separate from the project files.
 
 ## Options
 
@@ -102,5 +106,5 @@ This keeps your personal data separate from the project files.
 |--------|-------------|
 | `--once`, `-1` | Run once and exit (non-interactive mode) |
 | `--metal`, `-m` | Metal to focus on (gold, silver, platinum, palladium) |
-| `--period`, `-p` | Time period (24h, 3d, 1w, 1m, ytd, 1y, 5y, all) |
+| `--period`, `-p` | Time period (1w, 1m, ytd, 1y, 5y) |
 | `--chart`, `-c` | Show price chart |
