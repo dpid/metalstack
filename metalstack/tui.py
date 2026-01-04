@@ -256,13 +256,26 @@ class InteractiveTUI:
             content = Text("No items in portfolio. Use 'metalstack add' to add items.", style="dim")
         else:
             summary = self.portfolio.get_summary(spot_prices)
+            total_value = summary["total_value"]
+
+            # Calculate 24hr portfolio change based on metal price changes
+            total_change = 0.0
+            for metal, data in summary["by_metal"].items():
+                if data["weight_oz"] > 0:
+                    price = self.prices.get(metal)
+                    if price:
+                        total_change += data["weight_oz"] * price.change
+
+            # Calculate percentage change
+            previous_value = total_value - total_change
+            change_pct = (total_change / previous_value * 100) if previous_value else 0
 
             table = Table(show_header=False, box=None)
             table.add_column("Label", style="dim")
             table.add_column("Value")
 
-            table.add_row("Total Value", Text(format_price(summary["total_value"]), style="bold"))
-            table.add_row("Items", str(summary["total_items"]))
+            table.add_row("Total Value", Text(format_price(total_value), style="bold"))
+            table.add_row("24h Change", format_change(total_change, change_pct))
 
             # Add breakdown by metal
             for metal, data in summary["by_metal"].items():
