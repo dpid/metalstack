@@ -1,0 +1,39 @@
+{
+  "items": [
+    {
+      "name": "American Gold Eagle",
+      "metal": "gold",
+      "weight_oz": 1.0,
+      "quantity": 2,
+      "year": 2023
+    },
+    {
+      "name": "Canadian Gold Maple Leaf",
+      "metal": "gold",
+      "weight_oz": 1.0,
+      "quantity": 1,
+      "year": 2024
+    },
+    {
+      "name": "American Silver Eagle",
+      "metal": "silver",
+      "weight_oz": 1.0,
+      "quantity": 20,
+      "year": 2023
+    },
+    {
+      "name": "10 oz Silver Bar",
+      "metal": "silver",
+      "weight_oz": 10.0,
+      "quantity": 2,
+      "year": null
+    },
+    {
+      "name": "American Platinum Eagle",
+      "metal": "platinum",
+      "weight_oz": 1.0,
+      "quantity": 1,
+      "year": 2022
+    }
+  ]
+}
