@@ -19,7 +19,7 @@ from .display import (
     format_change_compact,
     format_price,
 )
-from .models import MetalPrice, MetalType
+from .models import MetalPrice, MetalType, TimePeriod
 from .portfolio import PortfolioManager, SettingsManager
 
 console = Console()
@@ -34,6 +34,13 @@ METAL_KEYS = {
     "4": MetalType.PALLADIUM,
     "d": MetalType.PALLADIUM,
 }
+
+CHART_PERIODS = [
+    TimePeriod.WEEK,
+    TimePeriod.MONTH,
+    TimePeriod.YTD,
+    TimePeriod.YEAR,
+]
 
 
 class InteractiveTUI:
@@ -51,6 +58,12 @@ class InteractiveTUI:
         self.error_message: str | None = None
         self._key_queue: queue.Queue[str] = queue.Queue()
         self._display_dirty = threading.Event()
+        # Chart state
+        self.show_chart = False
+        self.chart_period_index = settings.get_chart_period_index()
+        self.chart_data: list[tuple[str, float]] = []
+        self._chart_metal: MetalType | None = None
+        self._chart_period: TimePeriod | None = None
 
     def fetch_prices(self) -> None:
         """Fetch current prices from API."""
@@ -66,6 +79,21 @@ class InteractiveTUI:
         except MetalsAPIError as e:
             self.error_message = str(e)
             self._display_dirty.set()
+
+    def fetch_chart_data(self) -> None:
+        """Fetch historical price data for chart."""
+        period = CHART_PERIODS[self.chart_period_index]
+        # Only fetch if metal or period changed
+        if self._chart_metal == self.selected_metal and self._chart_period == period:
+            return
+        try:
+            self.chart_data = self.api.get_historical_prices(self.selected_metal, period)
+            self._chart_metal = self.selected_metal
+            self._chart_period = period
+            self.error_message = None
+        except MetalsAPIError as e:
+            self.chart_data = []
+            self.error_message = str(e)
 
     def build_metals_bar(self) -> Panel:
         """Build the metals price bar."""
@@ -104,7 +132,7 @@ class InteractiveTUI:
         return Panel(
             table,
             title="Precious Metals Spot Prices",
-            subtitle="[dim]1-4 or g/s/p/d: select metal | r: refresh | q: quit[/dim]",
+            subtitle="[dim]1-4 or g/s/p/d: select | c: chart | r: refresh | q: quit[/dim]",
             border_style="blue",
             expand=True,
         )
@@ -129,6 +157,63 @@ class InteractiveTUI:
 
         metal_name = self.selected_metal.value.title()
         return Panel(table, title=f"{metal_name} Detail", border_style="cyan")
+
+    def _downsample(self, values: list[float], max_points: int) -> list[float]:
+        """Downsample a list of values to fit within max_points."""
+        if len(values) <= max_points:
+            return values
+
+        # Calculate step size and sample evenly
+        step = len(values) / max_points
+        return [values[int(i * step)] for i in range(max_points)]
+
+    def build_chart_panel(self) -> Panel | None:
+        """Build the price chart panel."""
+        if not self.show_chart:
+            return None
+
+        period = CHART_PERIODS[self.chart_period_index]
+        metal_name = self.selected_metal.value.title()
+
+        if not self.chart_data:
+            content = Text("Loading chart data...", style="dim")
+        else:
+            try:
+                from asciichartpy import plot
+
+                # Get terminal width and calculate max chart width
+                # Account for panel borders (2), padding (2), and y-axis labels (~12)
+                max_width = console.width - 16
+                max_width = max(20, min(max_width, 120))  # Clamp between 20-120
+
+                values = [p[1] for p in self.chart_data]
+                values = self._downsample(values, max_width)
+                chart = plot(values, {"height": 8})
+
+                start_date = self.chart_data[0][0]
+                end_date = self.chart_data[-1][0]
+
+                content = Text(f"{chart}\n\n")
+                content.append(f"{start_date} to {end_date}", style="dim")
+            except ImportError:
+                content = Text("Install asciichartpy: pip install asciichartpy", style="yellow")
+
+        # Build period selector display
+        period_display = []
+        for i, p in enumerate(CHART_PERIODS):
+            if i == self.chart_period_index:
+                period_display.append(f"[reverse]{p.value}[/reverse]")
+            else:
+                period_display.append(f"[dim]{p.value}[/dim]")
+
+        subtitle = f"[dim]c: hide | < >: period[/dim]  {' '.join(period_display)}"
+
+        return Panel(
+            content,
+            title=f"{metal_name} Price Chart",
+            subtitle=subtitle,
+            border_style="magenta",
+        )
 
     def build_portfolio_panel(self) -> Panel:
         """Build the portfolio summary panel."""
@@ -207,13 +292,22 @@ class InteractiveTUI:
 
     def build_display(self) -> Group:
         """Build the complete display."""
-        return Group(
+        components = [
             self.build_metals_bar(),
             self.build_detail_panel(),
+        ]
+
+        chart_panel = self.build_chart_panel()
+        if chart_panel:
+            components.append(chart_panel)
+
+        components.extend([
             self.build_portfolio_panel(),
             self.build_items_table(),
             self.build_status_bar(),
-        )
+        ])
+
+        return Group(*components)
 
     def handle_key(self, key: str) -> bool:
         """Handle a key press. Returns False to quit."""
@@ -226,6 +320,24 @@ class InteractiveTUI:
 
         if key.lower() in METAL_KEYS:
             self.selected_metal = METAL_KEYS[key.lower()]
+            if self.show_chart:
+                self.fetch_chart_data()
+            self._display_dirty.set()
+
+        if key.lower() == "c":
+            self.show_chart = not self.show_chart
+            if self.show_chart:
+                self.fetch_chart_data()
+            self._display_dirty.set()
+
+        if key in ("<", ",") and self.show_chart:
+            self.chart_period_index = (self.chart_period_index - 1) % len(CHART_PERIODS)
+            self.fetch_chart_data()
+            self._display_dirty.set()
+
+        if key in (">", ".") and self.show_chart:
+            self.chart_period_index = (self.chart_period_index + 1) % len(CHART_PERIODS)
+            self.fetch_chart_data()
             self._display_dirty.set()
 
         return True
@@ -295,6 +407,7 @@ class InteractiveTUI:
 
         self.running = False
         self.settings.set_last_selected_metal(self.selected_metal)
+        self.settings.set_chart_period_index(self.chart_period_index)
 
 
 def run_interactive(api: MetalsAPI, portfolio: PortfolioManager) -> None:

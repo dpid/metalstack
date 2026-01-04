@@ -1,5 +1,6 @@
 """Metals.Dev API client for precious metal prices."""
 
+import hashlib
 import json
 import os
 from datetime import datetime, timedelta
@@ -42,7 +43,10 @@ class MetalsAPI:
     def _get_cache_path(self, endpoint: str, params: dict) -> Path:
         """Generate cache file path for a request."""
         safe_endpoint = endpoint.replace("/", "_")
-        cache_key = f"{safe_endpoint}_{hash(frozenset(params.items()))}"
+        # Use deterministic hash (sorted JSON) instead of Python's randomized hash()
+        params_str = json.dumps(params, sort_keys=True)
+        params_hash = hashlib.md5(params_str.encode()).hexdigest()[:12]
+        cache_key = f"{safe_endpoint}_{params_hash}"
         return CACHE_DIR / f"{cache_key}.json"
 
     def _get_cached(self, cache_path: Path) -> dict | None:

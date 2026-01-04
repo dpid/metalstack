@@ -175,3 +175,14 @@ class SettingsManager:
         settings = self._load()
         settings["last_selected_metal"] = metal.value
         self._save(settings)
+
+    def get_chart_period_index(self) -> int:
+        """Get the last selected chart period index, defaulting to 1 (month)."""
+        settings = self._load()
+        return settings.get("chart_period_index", 1)
+
+    def set_chart_period_index(self, index: int) -> None:
+        """Save the chart period index."""
+        settings = self._load()
+        settings["chart_period_index"] = index
+        self._save(settings)
