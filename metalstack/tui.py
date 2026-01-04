@@ -40,6 +40,7 @@ CHART_PERIODS = [
     TimePeriod.MONTH,
     TimePeriod.YTD,
     TimePeriod.YEAR,
+    TimePeriod.FIVE_YEARS,
 ]
 
 
@@ -87,13 +88,23 @@ class InteractiveTUI:
         if self._chart_metal == self.selected_metal and self._chart_period == period:
             return
         try:
-            self.chart_data = self.api.get_historical_prices(self.selected_metal, period)
+            self.chart_data = list(self.api.get_historical_prices(self.selected_metal, period))
+            # Append current spot price so chart shows up to now
+            current_price = self.prices.get(self.selected_metal)
+            if current_price and self.chart_data:
+                today = datetime.now().strftime("%Y-%m-%d")
+                # Replace or append today's price with live spot
+                if self.chart_data[-1][0] == today:
+                    self.chart_data[-1] = (today, current_price.spot)
+                else:
+                    self.chart_data.append((today, current_price.spot))
             self._chart_metal = self.selected_metal
             self._chart_period = period
             self.error_message = None
-        except MetalsAPIError as e:
+        except Exception as e:
             self.chart_data = []
             self.error_message = str(e)
+        self._display_dirty.set()
 
     def build_metals_bar(self) -> Panel:
         """Build the metals price bar."""
@@ -132,7 +143,7 @@ class InteractiveTUI:
         return Panel(
             table,
             title="Precious Metals Spot Prices",
-            subtitle="[dim]1-4 or g/s/p/d: select | c: chart | r: refresh | q: quit[/dim]",
+            subtitle="[dim]1-4 or g/s/p/d: select | c: toggle chart | r: refresh | q: quit[/dim]",
             border_style="blue",
             expand=True,
         )
@@ -158,14 +169,30 @@ class InteractiveTUI:
         metal_name = self.selected_metal.value.title()
         return Panel(table, title=f"{metal_name} Detail", border_style="cyan")
 
-    def _downsample(self, values: list[float], max_points: int) -> list[float]:
-        """Downsample a list of values to fit within max_points."""
-        if len(values) <= max_points:
+    def _resample(self, values: list[float], target_points: int) -> list[float]:
+        """Resample values to exactly target_points using linear interpolation."""
+        if len(values) == target_points:
             return values
+        if len(values) == 0:
+            return []
+        if len(values) == 1:
+            return values * target_points
 
-        # Calculate step size and sample evenly
-        step = len(values) / max_points
-        return [values[int(i * step)] for i in range(max_points)]
+        result = []
+        for i in range(target_points):
+            # Map target index to source position
+            src_pos = i * (len(values) - 1) / (target_points - 1)
+            src_idx = int(src_pos)
+            frac = src_pos - src_idx
+
+            if src_idx >= len(values) - 1:
+                result.append(values[-1])
+            else:
+                # Linear interpolation between adjacent points
+                interpolated = values[src_idx] + frac * (values[src_idx + 1] - values[src_idx])
+                result.append(interpolated)
+
+        return result
 
     def build_chart_panel(self) -> Panel | None:
         """Build the price chart panel."""
@@ -181,13 +208,13 @@ class InteractiveTUI:
             try:
                 from asciichartpy import plot
 
-                # Get terminal width and calculate max chart width
+                # Get terminal width and calculate chart width
                 # Account for panel borders (2), padding (2), and y-axis labels (~12)
-                max_width = console.width - 16
-                max_width = max(20, min(max_width, 120))  # Clamp between 20-120
+                chart_width = console.width - 16
+                chart_width = max(20, min(chart_width, 120))  # Clamp between 20-120
 
                 values = [p[1] for p in self.chart_data]
-                values = self._downsample(values, max_width)
+                values = self._resample(values, chart_width)
                 chart = plot(values, {"height": 8})
 
                 start_date = self.chart_data[0][0]
@@ -197,6 +224,8 @@ class InteractiveTUI:
                 content.append(f"{start_date} to {end_date}", style="dim")
             except ImportError:
                 content = Text("Install asciichartpy: pip install asciichartpy", style="yellow")
+            except Exception as e:
+                content = Text(f"Chart error: {e}", style="red")
 
         # Build period selector display
         period_display = []
