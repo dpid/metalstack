@@ -1,6 +1,9 @@
 """Interactive TUI mode for MetalStack."""
 
+import os
 import queue
+import sys
+import termios
 import threading
 import time
 from datetime import datetime
@@ -400,6 +403,12 @@ class InteractiveTUI:
         """Run the interactive TUI."""
         self.running = True
 
+        # Save terminal settings to restore on exit
+        try:
+            old_settings = termios.tcgetattr(sys.stdin)
+        except termios.error:
+            old_settings = None
+
         # Initial fetch
         self.fetch_prices()
 
@@ -433,8 +442,15 @@ class InteractiveTUI:
 
         except KeyboardInterrupt:
             pass
+        finally:
+            # Restore terminal settings
+            self.running = False
+            if old_settings:
+                try:
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                except termios.error:
+                    pass
 
-        self.running = False
         self.settings.set_last_selected_metal(self.selected_metal)
         self.settings.set_chart_period_index(self.chart_period_index)
 
