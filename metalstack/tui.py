@@ -1,7 +1,8 @@
 """Interactive TUI mode for MetalStack."""
 
-import sys
+import queue
 import threading
+import time
 from datetime import datetime
 
 import readchar
@@ -14,7 +15,6 @@ from rich.text import Text
 from .api import MetalsAPI, MetalsAPIError
 from .display import (
     METAL_NAMES,
-    display_collection_table,
     format_change,
     format_change_compact,
     format_price,
@@ -47,7 +47,10 @@ class InteractiveTUI:
         self.prices: dict[MetalType, MetalPrice] = {}
         self.running = False
         self.last_update: datetime | None = None
+        self.next_refresh: datetime | None = None
         self.error_message: str | None = None
+        self._key_queue: queue.Queue[str] = queue.Queue()
+        self._display_dirty = threading.Event()
 
     def fetch_prices(self) -> None:
         """Fetch current prices from API."""
@@ -55,9 +58,14 @@ class InteractiveTUI:
             for metal in MetalType:
                 self.prices[metal] = self.api.get_metal_spot(metal)
             self.last_update = datetime.now()
+            self.next_refresh = datetime.fromtimestamp(
+                self.last_update.timestamp() + self.api.cache_ttl
+            )
             self.error_message = None
+            self._display_dirty.set()
         except MetalsAPIError as e:
             self.error_message = str(e)
+            self._display_dirty.set()
 
     def build_metals_bar(self) -> Panel:
         """Build the metals price bar."""
@@ -190,9 +198,10 @@ class InteractiveTUI:
         if self.error_message:
             status.append(f"Error: {self.error_message}", style="red")
         elif self.last_update:
-            status.append(f"Last update: {self.last_update.strftime('%H:%M:%S')}", style="dim")
-            status.append(" • ", style="dim")
-            status.append(f"Cache TTL: {self.api.cache_ttl}s", style="dim")
+            status.append(f"Updated: {self.last_update.strftime('%H:%M:%S')}", style="dim")
+            if self.next_refresh:
+                status.append(" • ", style="dim")
+                status.append(f"Next: {self.next_refresh.strftime('%H:%M:%S')}", style="dim")
 
         return status
 
@@ -217,8 +226,34 @@ class InteractiveTUI:
 
         if key.lower() in METAL_KEYS:
             self.selected_metal = METAL_KEYS[key.lower()]
+            self._display_dirty.set()
 
         return True
+
+    def _key_reader_thread(self) -> None:
+        """Background thread to read key presses."""
+        while self.running:
+            try:
+                key = readchar.readkey()
+                self._key_queue.put(key)
+            except (OSError, Exception) as e:
+                if "ioctl" in str(e).lower() or "termios" in str(type(e).__module__).lower():
+                    self._key_queue.put("q")  # Signal quit on terminal error
+                    break
+                raise
+
+    def _auto_refresh_thread(self) -> None:
+        """Background thread to auto-refresh prices based on cache TTL."""
+        while self.running:
+            # Sleep in small increments to allow quick shutdown
+            sleep_time = self.api.cache_ttl
+            for _ in range(sleep_time):
+                if not self.running:
+                    return
+                time.sleep(1)
+
+            if self.running:
+                self.fetch_prices()
 
     def run(self) -> None:
         """Run the interactive TUI."""
@@ -226,6 +261,12 @@ class InteractiveTUI:
 
         # Initial fetch
         self.fetch_prices()
+
+        # Start background threads
+        key_thread = threading.Thread(target=self._key_reader_thread, daemon=True)
+        refresh_thread = threading.Thread(target=self._auto_refresh_thread, daemon=True)
+        key_thread.start()
+        refresh_thread.start()
 
         try:
             with Live(
@@ -236,20 +277,18 @@ class InteractiveTUI:
                 vertical_overflow="crop",
             ) as live:
                 while self.running:
-                    # Check for key press
+                    # Check for key press (non-blocking)
                     try:
-                        key = readchar.readkey()
+                        key = self._key_queue.get(timeout=0.1)
                         if not self.handle_key(key):
                             break
-                        # Only update display after key press changes state
+                    except queue.Empty:
+                        pass
+
+                    # Update display if dirty
+                    if self._display_dirty.is_set():
+                        self._display_dirty.clear()
                         live.update(self.build_display())
-                    except KeyboardInterrupt:
-                        break
-                    except (OSError, Exception) as e:
-                        # Terminal not interactive (e.g., piped input)
-                        if "ioctl" in str(e).lower() or "termios" in str(type(e).__module__).lower():
-                            break
-                        raise
 
         except KeyboardInterrupt:
             pass
