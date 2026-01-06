@@ -27,6 +27,13 @@ from .portfolio import PortfolioManager, SettingsManager
 
 console = Console()
 
+# Isometric 3D ASCII art logo
+LOGO = r"""
+    ╔╦╗╔═╗╔╦╗╔═╗╦  ╔═╗╔╦╗╔═╗╔═╗╦╔═
+    ║║║║╣  ║ ╠═╣║  ╚═╗ ║ ╠═╣║  ╠╩╗
+    ╩ ╩╚═╝ ╩ ╩ ╩╩═╝╚═╝ ╩ ╩ ╩╚═╝╩ ╩
+"""
+
 METAL_KEYS = {
     "1": MetalType.GOLD,
     "g": MetalType.GOLD,
@@ -109,6 +116,36 @@ class InteractiveTUI:
             self.error_message = str(e)
         self._display_dirty.set()
 
+    def build_logo(self) -> Text:
+        """Build the gold-colored isometric 3D logo."""
+        logo_text = Text(justify="center")
+        # Split preserving structure, strip only trailing newline
+        lines = LOGO.rstrip("\n").split("\n")[1:]  # Skip first empty line
+        # Create a gold gradient effect - brighter on top, darker below
+        gold_styles = ["bold bright_yellow", "bold yellow", "yellow"]
+        for i, line in enumerate(lines):
+            style = gold_styles[min(i, len(gold_styles) - 1)]
+            logo_text.append(line.strip() + "\n", style=style)
+        return logo_text
+
+    def build_keybindings(self) -> Text:
+        """Build the keybindings help line."""
+        keys = Text(justify="center")
+        key_style = "yellow"  # Match the darker gold from logo bottom row
+        keys.append("  1-4", style=key_style)
+        keys.append(" or ", style="dim")
+        keys.append("g/s/p/d", style=key_style)
+        keys.append(": select metal  ", style="dim")
+        keys.append("c", style=key_style)
+        keys.append(": chart  ", style="dim")
+        keys.append("< >", style=key_style)
+        keys.append(": period  ", style="dim")
+        keys.append("r", style=key_style)
+        keys.append(": refresh  ", style="dim")
+        keys.append("q", style=key_style)
+        keys.append(": quit", style="dim")
+        return keys
+
     def build_metals_bar(self) -> Panel:
         """Build the metals price bar."""
         table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
@@ -146,7 +183,6 @@ class InteractiveTUI:
         return Panel(
             table,
             title="Precious Metals Spot Prices",
-            subtitle="[dim]1-4 or g/s/p/d: select | c: toggle chart | r: refresh | q: quit[/dim]",
             border_style="blue",
             expand=True,
         )
@@ -338,6 +374,9 @@ class InteractiveTUI:
     def build_display(self) -> Group:
         """Build the complete display."""
         components = [
+            self.build_logo(),
+            self.build_keybindings(),
+            Text(),  # Empty line for spacing
             self.build_metals_bar(),
             self.build_detail_panel(),
         ]
